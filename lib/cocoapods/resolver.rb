@@ -103,13 +103,28 @@ module Pod
 
           # can't use vertex.root? since that considers _all_ targets
           explicit_dependencies = @podfile_dependency_cache.target_definition_dependencies(target).map(&:name).to_set
-          vertices = valid_dependencies_for_target(target)
 
-          resolver_specs_by_target[target] = vertices.
+          used_by_aggregate_target_by_spec_name = {}
+          used_vertices_by_spec_name = {}
+
+          # it's safe to make a single pass here since we iterate in topological order,
+          # so all of the predecessors have been visited before we get to a node.
+          # #tsort returns no-children vertices first, and we want them last (i.e. we want no-parent vertices first)
+          @activated.tsort.reverse_each do |vertex|
+            spec_name = vertex.name
+            explicitly_included = explicit_dependencies.include?(spec_name)
+            if explicitly_included || vertex.incoming_edges.any? { |edge| used_vertices_by_spec_name.key?(edge.origin.name) && edge_is_valid_for_target_platform?(edge, target.platform) }
+              validate_platform(vertex.payload, target)
+              used_vertices_by_spec_name[spec_name] = vertex
+              used_by_aggregate_target_by_spec_name[spec_name] = vertex.payload.library_specification? &&
+                (explicitly_included || vertex.predecessors.any? { |predecessor| used_by_aggregate_target_by_spec_name.fetch(predecessor.name, false) })
+            end
+          end
+
+          resolver_specs_by_target[target] = used_vertices_by_spec_name.each_value.
             map do |vertex|
               payload = vertex.payload
-              non_library = (!explicit_dependencies.include?(vertex.name) || payload.non_library_specification?) &&
-                (vertex.recursive_predecessors & vertices).all? { |v| !explicit_dependencies.include?(v.name) || v.payload.non_library_specification? }
+              non_library = !used_by_aggregate_target_by_spec_name.fetch(vertex.name)
               spec_source = payload.respond_to?(:spec_source) && payload.spec_source
               ResolverSpecification.new(payload, non_library, spec_source)
             end.
