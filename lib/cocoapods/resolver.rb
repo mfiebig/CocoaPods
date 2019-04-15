@@ -554,17 +554,18 @@ Note: as of CocoaPods 1.0, `pod repo update` does not happen on `pod install` by
     #         dependencies for `target`.
     #
     def valid_dependencies_for_target(target)
-      dependencies = Set.new
+      dependencies = {}
       @podfile_dependency_cache.target_definition_dependencies(target).each do |dep|
         node = @activated.vertex_named(dep.name)
         add_valid_dependencies_from_node(node, target, dependencies)
       end
-      dependencies
+      dependencies.values.to_set
     end
 
     def add_valid_dependencies_from_node(node, target, dependencies)
+      return if dependencies.key?(node.name)
       raise "Missing payload for #{node.name}" unless node.payload
-      return unless dependencies.add?(node)
+      dependencies[node.name] = node
       validate_platform(node.payload, target)
       node.outgoing_edges.each do |edge|
         next unless edge_is_valid_for_target_platform?(edge, target.platform)
